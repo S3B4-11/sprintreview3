@@ -1,4 +1,5 @@
 # sprintreview3
 
 ## Línea_del_conflicto
-Estado: PENDIENTE
+Estado: Matías actualizó guía de commits convencionales
+
