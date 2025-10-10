@@ -1,4 +1,4 @@
 # sprintreview3
 
 ## Línea_del_conflicto
-Estado: PENDIENTE
+Estado: Sebastián integró badges de CI
