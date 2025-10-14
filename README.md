@@ -205,3 +205,145 @@ class LoginActivity : AppCompatActivity() {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 }
+
+
+
+Revision de Matias (Correccion Final)
+
+
+package com.api.practicasubo.login
+
+import android.content.Intent
+import android.os.Bundle
+import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.widget.*
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.widget.doOnTextChanged
+import androidx.lifecycle.lifecycleScope
+import com.api.practicasubo.R
+import com.api.practicasubo.core.Api
+import com.api.practicasubo.core.Session
+import com.api.practicasubo.main.MainActivity
+import com.google.android.material.button.MaterialButton
+import kotlinx.coroutines.launch
+
+class LoginActivity : AppCompatActivity() {
+
+    private val auth: AuthService by lazy { Api.retrofit.create(AuthService::class.java) }
+
+    private lateinit var etUser: EditText
+    private lateinit var etPass: EditText
+    private lateinit var tvMsg: TextView
+    private lateinit var btnLogin: MaterialButton
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_login)
+
+        attachLaunchOverlay()
+
+        Session.load(this)
+        if (!Session.token.isNullOrBlank()) return goToMain()
+
+        bindViews()
+        setupInteractions()
+    }
+
+    private fun bindViews() {
+        etUser = findViewById(R.id.etUser)
+        etPass = findViewById(R.id.etPass)
+        tvMsg  = findViewById(R.id.tvMsg)
+        btnLogin = findViewById(R.id.btnLogin)
+        findViewById<TextView>(R.id.tvForgot).setOnClickListener {
+            startActivity(Intent(this, ForgotPasswordActivity::class.java))
+        }
+    }
+
+    private fun setupInteractions() {
+        val updateEnabled = { btnLogin.isEnabled = etUser.text?.isNotEmpty() == true && etPass.text?.isNotEmpty() == true }
+        etUser.doOnTextChanged { _, _, _, _ -> updateEnabled() }
+        etPass.doOnTextChanged { _, _, _, _ -> updateEnabled() }
+        updateEnabled()
+
+        etPass.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE && btnLogin.isEnabled) { btnLogin.performClick(); true } else false
+        }
+
+        btnLogin.setOnClickListener { attemptLogin() }
+    }
+
+    private fun attemptLogin() {
+        val username = etUser.text.toString().trim()
+        val password = etPass.text.toString().trim()
+        if (username.isEmpty() || password.isEmpty()) {
+            showToast(getString(R.string.login_fill_both))
+            return
+        }
+
+        setLoading(true)
+        lifecycleScope.launch {
+            val body = mapOf("username" to username, "password" to password)
+            val result = runCatching { auth.login(body) }
+
+            result.onSuccess { res ->
+                Session.save(this@LoginActivity, res.token)
+                Session.saveRole(this@LoginActivity, normalizeRole(res.user.role))
+                val display = res.user.full_name?.takeIf { it.isNotBlank() } ?: res.user.username
+                val email = res.user.email ?: res.user.username
+                Session.saveIdentity(this@LoginActivity, email, display)
+                goToMain()
+            }.onFailure { e ->
+                tvMsg.text = friendlyError(e)
+                setLoading(false)
+            }
+        }
+    }
+
+    private fun normalizeRole(raw: String?): String = when (raw?.lowercase()) {
+        "estudiante" -> "alumno"
+        "empresa"    -> "empresa"
+        "admin"      -> "admin"
+        else         -> raw?.lowercase().orEmpty()
+    }
+
+    private fun friendlyError(e: Throwable): String {
+        val msg = e.message?.lowercase().orEmpty()
+        return when {
+            "timeout" in msg -> getString(R.string.error_timeout)
+            "unable to resolve host" in msg -> getString(R.string.error_network)
+            "401" in msg || "unauthorized" in msg -> getString(R.string.error_credentials)
+            else -> getString(R.string.error_generic_login)
+        }
+    }
+
+    private fun setLoading(loading: Boolean) {
+        btnLogin.isEnabled = !loading
+        btnLogin.text = if (loading) getString(R.string.logging_in) else getString(R.string.action_login)
+        tvMsg.text = ""
+    }
+
+    private fun goToMain() {
+        startActivity(Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        })
+        finish()
+    }
+
+    private fun attachLaunchOverlay() {
+        val root = window.decorView as ViewGroup
+        val overlay = FrameLayout(this).apply { setBackgroundColor(getColor(R.color.brandBlue)) }
+        val logo = ImageView(this).apply {
+            setImageResource(R.drawable.ic_logo_flat)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            val pad = (48 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        overlay.addView(logo)
+        root.addView(overlay)
+        overlay.postDelayed({ root.removeView(overlay) }, 600)
+    }
+
+    private fun showToast(text: String) =
+        Toast.makeText(this@LoginActivity, text, Toast.LENGTH_SHORT).show()
+}
